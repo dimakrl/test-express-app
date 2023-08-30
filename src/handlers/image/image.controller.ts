@@ -11,6 +11,7 @@ imageController.post('/', upload.single('file'), async (req: Request, res: Respo
 })
 
 imageController.get('/:key', async (req: Request, res: Response) => {
+    console.log('Add some changes');
     await imageService.findOne(req.params.key, res);
 })
 
