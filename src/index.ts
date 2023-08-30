@@ -23,7 +23,8 @@ app.use('/images', imageController)
 
 app.get("/health", function (req: Request, res: Response) {
     res.json({
-        healthy: true
+        healthy: true,
+        v: '1.0.0',
     })
 })
 
