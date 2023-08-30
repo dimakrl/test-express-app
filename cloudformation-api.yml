@@ -1,0 +1,391 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  InstanceTypeParameter:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+    Description: Enter instance type.
+
+Resources:
+  # Bucket creation
+  S3Bucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: dmoneone.simple.images
+
+  # VPC creation
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: '10.0.0.0/16'
+      Tags:
+        - Key: Name
+          Value: Project-Network
+
+  # Internet gateway creation
+
+  VPCInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Project-IGW
+
+  # Attach IGW to VPC
+
+  AttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref VPCInternetGateway
+
+  # Subnets creation
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.11.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone:
+        'Fn::Select':
+          - 0
+          - 'Fn::GetAZs': eu-north-1
+      Tags:
+        - Key: Name
+          Value: Project-Public-Subnet-A
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.12.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone:
+        'Fn::Select':
+          - 1
+          - 'Fn::GetAZs': eu-north-1
+      Tags:
+        - Key: Name
+          Value: Project-Public-Subnet-B
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.13.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone:
+        'Fn::Select':
+          - 0
+          - 'Fn::GetAZs': eu-north-1
+      Tags:
+        - Key: Name
+          Value: ProjectPrivateSubnetA
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.14.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone:
+        'Fn::Select':
+          - 1
+          - 'Fn::GetAZs': eu-north-1
+      Tags:
+        - Key: Name
+          Value: ProjectPrivateSubnetB
+
+  # Route tables creation
+
+  RouteTableForPublicSubnet:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Public-RT
+
+  RouteTableForPrivateSubnet:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Private-RT
+
+  # Route table routes
+
+  RoutesForPublicRouteTable:
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref VPCInternetGateway
+      RouteTableId: !Ref RouteTableForPublicSubnet
+
+  # Route table associations
+
+  RouteAssociationPublicA:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTableForPublicSubnet
+      SubnetId: !Ref PublicSubnetA
+
+  RouteAssociationPublicB:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTableForPublicSubnet
+      SubnetId: !Ref PublicSubnetB
+
+  RouteAssociationPrivateA:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTableForPrivateSubnet
+      SubnetId: !Ref PrivateSubnetA
+
+  RouteAssociationPrivateB:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTableForPrivateSubnet
+      SubnetId: !Ref PrivateSubnetB
+
+  # Creation of security group
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: WebServer
+      GroupDescription: Allow http/https from anywhere with ability to log in
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+          # http
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          # https
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          # ssh
+        - FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+
+      SecurityGroupEgress:
+        # http
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          # https
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+        # psql access
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+
+  SecurityGroupForPsql:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: PsqlServer
+      GroupDescription: Allow being connected to ec2
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        # psql access
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+
+
+  # Creation of DB
+
+  DbSubnetGroup:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupDescription: SG of private subnets
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      Tags:
+        - Key: Name
+          Value: ApiDbSubnetGroup
+
+  Db:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: 20
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: false
+      DBInstanceIdentifier: ApiDb
+      DBInstanceClass: db.t3.micro
+      DBName: images
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      DeleteAutomatedBackups: true
+      DeletionProtection: false
+      EnablePerformanceInsights: false
+      EnableIAMDatabaseAuthentication: false
+      Engine: postgres
+      ManageMasterUserPassword: false
+      MasterUsername: postgres
+      MasterUserPassword: *
+      MultiAZ: false
+      Port: 5432
+      PubliclyAccessible: false
+      StorageType: gp2
+      VPCSecurityGroups:
+        - !Ref SecurityGroupForPsql
+      Tags:
+        - Key: Name
+          Value: ApiDb
+
+  # Creation of launch template
+
+  S3FullAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: S3FullAccessRole
+      AssumeRolePolicyDocument: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+      Policies:
+        - PolicyName: S3FullAccessRolePolicy
+          PolicyDocument: '{"Version":"2012-10-17","Statement":[{"Sid":"VisualEditor0","Effect":"Allow","Action":"s3:*","Resource":"*"}]}'
+
+
+  S3FullAccessRoleProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref S3FullAccessRole
+
+  ApiTemplate:
+    Type: 'AWS::EC2::LaunchTemplate'
+    Properties:
+      LaunchTemplateName: Api-Project-Launch-Template
+      LaunchTemplateData:
+        KeyName: Stockholm-key
+        NetworkInterfaces:
+          - AssociatePublicIpAddress: true
+            DeviceIndex: 0
+            Groups:
+              - !Ref SecurityGroup
+            DeleteOnTermination: true
+        ImageId: ami-0758cc907f7c05299
+        InstanceType: !Ref InstanceTypeParameter
+        IamInstanceProfile:
+          Name: !Ref S3FullAccessRoleProfile
+        UserData:
+          Fn::Base64: !Sub
+            - |
+              #!/bin/bash
+              
+              echo "START USER DATA =====================================>"
+              
+              echo "ENV VARS SETTING ---------------->"
+              
+              
+              region=`aws s3api get-bucket-location --bucket dmoneone.simple.images --query 'LocationConstraint'`
+              endpoint=${ENDPOINT}
+              file_location=/home/ec2-user/express-app-for-s3-dep/.env
+              cat >$file_location <<EOF
+              ENDPOINT=$endpoint
+              USER_NAME=postgres
+              DB_PORT=5432
+              PASSWORD=p*
+              TABLE_SCHEMA_AUTOUPDATE=true
+              DEVELOPMENT=false
+              PORT=3000
+              DATABASE_NAME=images
+              REGION=$region
+              BUCKET_NAME=dmoneone.simple.images
+              SLL=true
+              EOF
+                            
+              echo "END USER DATA =====================================>"
+            - ENDPOINT: !GetAtt Db.Endpoint.Address
+  # Creation of auto scaling group
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthCheckPath: '/health'
+      HealthyThresholdCount: 5
+      UnhealthyThresholdCount: 2
+      Name: ApiLoadBalancerTargetGroup
+      Protocol: HTTP
+      Port: 3000
+      VpcId: !Ref VPC
+
+  SiteLoadBalancer:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      Name: SiteLoadBalancer
+      SecurityGroups:
+        - !Ref SecurityGroup
+      Subnets:
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetB
+
+  HTTPlistener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      DefaultActions:
+        - ForwardConfig:
+            TargetGroups:
+              - TargetGroupArn: !Ref TargetGroup
+          Order: 1
+          Type: forward
+      LoadBalancerArn: !Ref SiteLoadBalancer
+      Port: 80
+      Protocol: "HTTP"
+
+  SiteScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: SiteScalingGroup
+      LaunchTemplate:
+        LaunchTemplateId: !Ref ApiTemplate
+        Version: !GetAtt ApiTemplate.LatestVersionNumber
+      MaxSize: 2
+      MinSize: 1
+      DesiredCapacity: 2
+      VPCZoneIdentifier:
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetB
+      TargetGroupARNs:
+        - !Ref TargetGroup
+
+  ScalingCPUUsagePolicy:
+    Type: 'AWS::AutoScaling::ScalingPolicy'
+    Properties:
+      PolicyType: TargetTrackingScaling
+      AutoScalingGroupName: !Ref SiteScalingGroup
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        DisableScaleIn: false
+        TargetValue: 50
